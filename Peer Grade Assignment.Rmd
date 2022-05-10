@@ -1,0 +1,133 @@
+---
+title: "Machine Learning Final Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Libraries
+```{r, include=FALSE}
+library(caret)
+library(tibble)
+library(dplyr)
+library(visdat)
+library(recipes)
+library(plotly)
+library(heatmaply)
+library(ggcorrplot)
+library(vip)
+library(tidyverse)
+```
+
+# Load Data
+```{r cars}
+training_orginal<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", header=T, na.strings=c("","NA"))
+testing_orginal<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+```
+
+# Clean data
+It is necessary to remove the first seven columns because they are not predictors for classe.  It is also necessary to remove the columns with many na's.  If columns only had a few na, these could be imputed, but with so many missing it is better to remove these columns.  
+```{r}
+training_orginal<-as.data.frame(training_orginal[,8:160]) #Remove columns 1-7
+
+training_orginal<-training_orginal[ , colSums(is.na(training_orginal)) <= .25*nrow(training_orginal)] #remove columns with more than 25% na 
+View(training_orginal)
+```
+
+# Correlation Plot
+Before developing machine learning is helpful to create a few plots. This correlation plot is interactive and can be zoomed in on a particular area. 
+```{r}
+
+data_for_plot<-training_orginal
+#Convert data to numeric
+i <- c(1:ncol(data_for_plot)) # Specify columns you want to change --> in this case the numbe of col in training_orginal
+data_for_plot<-data_for_plot[ , i] <- apply(data_for_plot[ , i], 2,  # Specify own function within apply
+                    function(x) as.numeric(as.character(x)))
+
+# Compute a correlation matrix
+corr <- round(cor(data_for_plot), 1)
+
+# Visualize the correlation matrix
+corr_plot<-ggcorrplot(corr, outline.col = "white", type = "upper")
+ggplotly(corr_plot)
+```
+
+# Create k-fold cross-validation
+Cross-validation was used as a resampling method. The number of folds was set to 10. Using cross-validation is helpful so that the model isn't overfitted. 
+```{r}
+train.control <- trainControl(method = "cv", number = 10)
+```
+
+# Modeling with cross-validation
+After a cross-validation plan was determined, three different machine learning techniques were conducted; linear discriminant analysis, random forest, and generalized boosted regression modeling. 
+```{r, echo = T, results = 'hide'}
+#linear discriminant analysis model
+model_lda_v2<-train(classe~.,data=training_orginal,method="lda",
+                 trControl = train.control
+                 ) 
+#random forest model
+model_RF_v2<-train(classe~.,data=training_orginal,method="rf", 
+                trControl = train.control
+                )  
+#generalized boosted regression modeling
+model_gbm_v2<-train(classe~.,data=training_orginal,method="gbm",
+                 trControl = train.control
+                 ) 
+```
+
+# Modeling Results
+Below is the summary of how well the models predict. 
+```{r}
+#lda
+model_lda_v2$results
+
+#RF 
+model_RF_v2$results
+
+#gbm
+model_gbm_v2$results
+```
+
+# Accuracy
+The out of sample error for lda is 70% while for gbm is 97.2%.           
+```{r}
+#lda
+pred_lda_out<-predict(model_lda_v2,training_orginal)
+confusion_lda_out<-confusionMatrix(pred_lda_out, factor(training_orginal$classe))
+confusion_lda_out
+
+#RF
+pred_RF_out<-predict(model_RF_v2,training_orginal)
+confusion_RF_out<-confusionMatrix(pred_RF_out, factor(training_orginal$classe))
+confusion_RF_out
+
+#gbm
+pred_gbm_out<-predict(model_gbm_v2,training_orginal)
+confusion_gbm_out<-confusionMatrix(pred_gbm_out, factor(training_orginal$classe))
+confusion_gbm_out
+```
+
+# Predictions
+Now the models are used to create predictions for the testing dataset. 
+```{r predictions}
+#predict models
+pred_RF<-predict(model_RF_v2,testing_orginal)
+pred_lda<-predict(model_lda_v2,testing_orginal)
+pred_gbm<-predict(model_gbm_v2,testing_orginal)
+
+#Combine all results into a dataframe.
+prediction_summary<-data.frame(pred_RF,pred_gbm,pred_lda)
+prediction_summary
+```
+
+# Model "averaging"
+The three different machine learning algorithms  provide different predictions.  The code below finds the most common value between the three algorithms  and displays it in the last column.  The last column is our final prediction. 
+```{r}
+#Use prediction_summary to find the most common value 
+most_common<-as.data.frame(apply(prediction_summary,1,function(x) names(which.max(table(x))))) # most common letter
+colnames(most_common) <- c('most_common') #rename column
+final_prediction<-cbind(prediction_summary, most_common) #Merge tables
+final_prediction
+```
